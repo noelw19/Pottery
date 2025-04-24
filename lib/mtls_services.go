@@ -53,7 +53,6 @@ func CreateMTLSServer(port string, tlsConfig *tls.Config) {
 		// implement handlers to save data that comes in to the database
 		// TODO unmarshal data into struct and use same functionality to save to local db
 		router.HandleFunc("POST /ipdata", func(w http.ResponseWriter, r *http.Request) {
-			fmt.Println("in ip_data")
 			if r.Body == nil {
 				log.Println("Body is empty")
 				fmt.Fprintf(w, "Need data in req body\n")
@@ -69,6 +68,7 @@ func CreateMTLSServer(port string, tlsConfig *tls.Config) {
 				fmt.Println(string(body))
 				geo := &GeoData{}
 				geo.Unmarshal(body)
+				log.Println(GreenLog("Received ip data from child"))
 				geo.SaveToDB()
 			}
 
@@ -77,7 +77,6 @@ func CreateMTLSServer(port string, tlsConfig *tls.Config) {
 		})
 
 		router.HandleFunc("POST /endpointhit", func(w http.ResponseWriter, r *http.Request) {
-			fmt.Println("in endpoint hit")
 			if r.Body == nil {
 				log.Println("Body is empty")
 				fmt.Fprintf(w, "Need data in req body\n")
@@ -90,9 +89,10 @@ func CreateMTLSServer(port string, tlsConfig *tls.Config) {
 				fmt.Fprintf(w, "Error reading bytes from req body\n")
 
 			} else {
-				fmt.Println(string(body))
 				ep := &Endpoint_hit{}
 				ep.Unmarshal(body)
+
+				log.Println(GreenLog("Received endpoint hit data from child: " + ep.Honeypot))
 				ep.SaveToDB()
 			}
 
@@ -100,8 +100,28 @@ func CreateMTLSServer(port string, tlsConfig *tls.Config) {
 			fmt.Fprintf(w, "Success\n")
 		})
 
-		router.HandleFunc("/verify", func(w http.ResponseWriter, r *http.Request) {
-			fmt.Println("Child honeypot instance has hit the verify endpoint.")
+		router.HandleFunc("POST /verify", func(w http.ResponseWriter, r *http.Request) {
+			if r.Body == nil {
+				log.Println("Body is empty")
+				fmt.Fprintf(w, "Need data in req body\n")
+
+				return
+			}
+			body, err1 := io.ReadAll(r.Body)
+			if err1 != nil {
+				log.Println("Error parsing response body when sending to parent: ", err1)
+				fmt.Fprintf(w, "Error reading bytes from req body\n")
+
+			} else {
+				type verifyData struct {
+					Honeypot string
+				}
+				vd := &verifyData{}
+				json.Unmarshal(body, vd)
+				log.Println(GreenLog("MTLS Verified from child instance with the naming scheme: " + vd.Honeypot))
+			}
+
+			r.Body.Close()
 			fmt.Fprintf(w, "Success\n")
 		})
 		// create MTLS Server or client
@@ -175,13 +195,27 @@ func MTLS_Client() *http.Client {
 }
 
 // calls the verify endpoint to validate that the certificates provided work
-func MTLS_Verify_Certs(parentIP string) {
+func MTLS_Verify_Certs(parentIP string, potName string) {
 	log.Println("Verifying MTLS Connectivity")
 	client := MTLS_Client()
 
+	type verifyData struct {
+		Honeypot string
+	}
+
 	// Make a request
+	vd := verifyData{
+		Honeypot: potName,
+	}
+	jsonBytes, err := json.Marshal(vd)
+	if err != nil {
+		log.Println("There was an issue marshalling honeypot name for MTLS verify request")
+		log.Fatalln(RedLog("Exiting Pottery"))
+	}
+
+	jsonReader := bytes.NewReader(jsonBytes)
 	parentURL := fmt.Sprintf("https://%s/verify", parentIP)
-	r, err := client.Get(parentURL)
+	r, err := client.Post(parentURL, "application/json", jsonReader)
 	if err != nil {
 		log.Println("Error sending data to parent: ", err)
 		if errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, context.DeadlineExceeded) {

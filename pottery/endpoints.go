@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	// "math/rand"
 
 	"github.com/noelw19/honeypot/logging"
 )
@@ -25,13 +26,21 @@ func handlePopper(w http.ResponseWriter, req *http.Request) {
 	fmt.Fprintf(w, "Turns out your popper\n")
 }
 
-func notFoundHandler(w http.ResponseWriter, req *http.Request) {
+// func dynamicReturns() string {
+// 	arr := []string{
+// 	}
+// 	randomInt := rand.Intn(len(arr))
+// 	return arr[randomInt]
+// }
+
+func mainDynamicHandler(w http.ResponseWriter, req *http.Request) {
 	record := logging.GenerateRecord(req)
 	if err := logging.LogRecord(record); err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Fprintf(w, "Welcome to %s\n", req.URL.Path)
+	// dynamic returns
+	fmt.Fprintf(w, "Welcome to pottery\n")
 }
 
 // function will return the arguements needed for mux HandleFunc
@@ -40,6 +49,6 @@ func handlerFactory(url_path string) (string, http.HandlerFunc) {
 	// log.Println("New Endpoint: ", url_path)
 
     return "/"+url_path, func(w http.ResponseWriter, r *http.Request) {
-        notFoundHandler(w, r)
+        mainDynamicHandler(w, r)
     }
 }

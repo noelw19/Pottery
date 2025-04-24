@@ -38,7 +38,7 @@ func (hp *Honeypots) startup_checks() {
 	if hp.Config.HasParent() {
 
 		if lib.FileExist("./certs") && lib.FileExist("./certs/ca/ca.crt") && lib.FileExist("./certs/ca/ca.key") && lib.FileExist("./certs/server/server.crt") && lib.FileExist("./certs/server/server.key") && lib.FileExist("./certs/client/client.crt") && lib.FileExist("./certs/client/client.key") {
-			lib.MTLS_Verify_Certs(hp.Config.Parent)
+			lib.MTLS_Verify_Certs(hp.Config.Parent, hp.Config.NamingScheme)
 			tlsConfig := lib.LoadTLSConfig()
 			hp.TLS = tlsConfig
 		} else {
