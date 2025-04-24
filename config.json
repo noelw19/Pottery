@@ -1,0 +1,6 @@
+{
+    "ports": [8081, 8082],
+    "namingScheme": "Tequila_Sunrise",
+    "parent": "192.168.154.66:8443"
+}
+
