@@ -131,7 +131,9 @@ func (mod *Honeypots) createHoneyPots() {
 	w.Flush()
 
 	if mod.Config.Parent != "none" && mod.Config.IsParent() {
-		lib.CreateMTLSServer("8443", mod.TLS)
+		MTLS_server := lib.CreateMTLSServer("8443", mod.TLS)
+		srv.servers = append(srv.servers, MTLS_server)
+		srv.honeypots = append(srv.honeypots, "MTLS Server")
 	}
 
 	mod.printHoneypotsAndEndpoints()

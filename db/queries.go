@@ -1,12 +1,11 @@
 package db
 
-import (
-	// "github.com/noelw19/honeypot/lib"
-)
+// "github.com/noelw19/honeypot/lib"
 
 type Create struct {
 	Table_user         string
 	Table_endpoint_hit string
+	Table_blacklist    string
 }
 
 type Insert struct {
@@ -51,9 +50,14 @@ func (mod *Db) create_queries() Queries {
 						REFERENCES ip_data(ip)
 					
 				);`,
+			Table_blacklist: `CREATE TABLE IF NOT EXISTS blacklist (
+					id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+					ip TEXT NOT NULL UNIQUE,
+					CONSTRAINT fk_ip1
+						FOREIGN KEY (ip)
+						REFERENCES ip_data(ip)
+				);`,
 		},
-		Insert{
-
-		},
+		Insert{},
 	}
 }

@@ -35,6 +35,10 @@ type Endpoint_hit struct {
 	Req_body   string `json:"req_body"`
 }
 
+type blacklist struct {
+	Ip string `json:"ip"`
+}
+
 // create db to store ips and counts endpoints visited, geolocations
 
 func (mod *Db) Start() {
@@ -49,6 +53,14 @@ func (mod *Db) Start() {
 	if err != nil {
 		fmt.Println("Error executing query in Start():", err, mod.create_queries().CREATE.Table_endpoint_hit)
 	}
+
+	err = mod.BaseExecRunner(mod.create_queries().CREATE.Table_blacklist)
+	log.Println("create tbl: ", err)
+	if err != nil {
+		fmt.Println("Error executing query in Start():", err, mod.create_queries().CREATE.Table_blacklist)
+	}
+
+	// mod.Set_Blacklist()
 
 	fmt.Println("")
 	fmt.Println("Pottery Database initialized")
@@ -87,6 +99,35 @@ func (mod *Db) Base_IP_Data_QueryRunner(query string) (*[]ip_data, error) {
 	return ipdata, nil
 }
 
+func (db *Db) CheckIP_blacklist(ip string) bool {
+	inBlacklist := false
+	data, err := db.Base_blacklist_QueryRunner(`select ip from blacklist`)
+	if err != nil {
+		log.Println("error getting blacklist from DB: ", err)
+	}
+	for _, bl := range *data {
+		if bl.Ip == ip {
+			inBlacklist = true
+		}
+	}
+	return inBlacklist
+}
+
+func (mod *Db) Base_blacklist_QueryRunner(query string) (*[]blacklist, error) {
+	db, err := sql.Open("sqlite3", mod.Filename)
+	if err != nil {
+		return &[]blacklist{}, err
+	}
+	defer db.Close()
+	rows, err := db.Query(query)
+	if err != nil {
+		return &[]blacklist{}, err
+	}
+
+	endpointData := mod.blacklist_parse(rows)
+	return endpointData, nil
+}
+
 func (mod *Db) Base_Endpoint_Hit_QueryRunner(query string) (*[]Endpoint_hit, error) {
 	db, err := sql.Open("sqlite3", mod.Filename)
 	if err != nil {
@@ -100,6 +141,27 @@ func (mod *Db) Base_Endpoint_Hit_QueryRunner(query string) (*[]Endpoint_hit, err
 
 	endpointData := mod.endpoint_hit_parse(rows)
 	return endpointData, nil
+}
+
+func (mod *Db) blacklist_parse(rows *sql.Rows) *[]blacklist {
+	ipdata := &[]blacklist{}
+	for rows.Next() {
+		data := blacklist{}
+		s := reflect.ValueOf(&data).Elem()
+		numCols := s.NumField()
+		columns := make([]any, numCols)
+		for i := range numCols {
+			field := s.Field(i)
+			columns[i] = field.Addr().Interface()
+		}
+
+		err := rows.Scan(columns...)
+		if err != nil {
+			log.Fatal(err)
+		}
+		*ipdata = append(*ipdata, data)
+	}
+	return ipdata
 }
 
 func (mod *Db) ip_data_parse(rows *sql.Rows) *[]ip_data {
@@ -183,6 +245,17 @@ func (mod *Db) Get_IP_From_DB(ip string) *[]ip_data {
 	}
 	return result
 
+}
+
+func (mod *Db) Set_Blacklist(IP string) error {
+	query := fmt.Sprintf(`
+	INSERT INTO blacklist (ip)
+	VALUES("%s");`, IP)
+	err := mod.BaseExecRunner(query)
+	if err != nil {
+		log.Println("Error updating db: ", err)
+	}
+	return nil
 }
 
 func (mod *Db) Set_IP_DATA(IP string, Country string, CountryCode string, City string, Region string, ISP string) error {

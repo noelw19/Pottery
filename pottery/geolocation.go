@@ -40,13 +40,18 @@ func (data *GeoData) GetGeolocation(ip string) error {
 	return nil
 }
 
-func (data *GeoData) ParentPass(parentIP string) error {
+func (data *GeoData) ParentPass(parentIP string, name string) error {
 	json, err := data.Marshal()
 	if err != nil {
 		log.Println("There was an error marshalling geolocation")
 		return err
 	}
-	lib.SendToParent(parentIP, lib.MTLS_MESSAGE_TYPE_IP_DATA, json)
+	appendedJSON, err := lib.AddToJSON(json, "name", name)
+	if err != nil {
+		log.Println("There was an error marshalling geolocation")
+		return err
+	}
+	lib.SendToParent(parentIP, lib.MTLS_MESSAGE_TYPE_IP_DATA, appendedJSON)
 	return nil
 }
 

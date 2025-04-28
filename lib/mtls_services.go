@@ -41,7 +41,8 @@ func LoadTLSConfig() *tls.Config {
 	}
 }
 
-func CreateMTLSServer(port string, tlsConfig *tls.Config) {
+func CreateMTLSServer(port string, tlsConfig *tls.Config) *http.Server {
+	serv := &http.Server{}
 
 	go func() {
 		router := http.NewServeMux()
@@ -52,78 +53,11 @@ func CreateMTLSServer(port string, tlsConfig *tls.Config) {
 
 		// implement handlers to save data that comes in to the database
 		// TODO unmarshal data into struct and use same functionality to save to local db
-		router.HandleFunc("POST /ipdata", func(w http.ResponseWriter, r *http.Request) {
-			if r.Body == nil {
-				log.Println("Body is empty")
-				fmt.Fprintf(w, "Need data in req body\n")
+		router.HandleFunc("POST /ipdata", ipdataHandler)
+		router.HandleFunc("POST /endpointhit", endpointhitHandler)
+		router.HandleFunc("POST /verify", verifyHandler)
+		router.HandleFunc("POST /fuzzingalert", fuzzingAlertHandler)
 
-				return
-			}
-			body, err := io.ReadAll(r.Body)
-			if err != nil {
-				log.Println("Error parsing response body when receiving in parent: ", err)
-				fmt.Fprintf(w, "Error reading bytes in req body.\n")
-				return
-			} else {
-				fmt.Println(string(body))
-				geo := &GeoData{}
-				geo.Unmarshal(body)
-				log.Println(GreenLog("Received ip data from child"))
-				geo.SaveToDB()
-			}
-
-			r.Body.Close()
-			fmt.Fprintf(w, "Success\n")
-		})
-
-		router.HandleFunc("POST /endpointhit", func(w http.ResponseWriter, r *http.Request) {
-			if r.Body == nil {
-				log.Println("Body is empty")
-				fmt.Fprintf(w, "Need data in req body\n")
-
-				return
-			}
-			body, err1 := io.ReadAll(r.Body)
-			if err1 != nil {
-				log.Println("Error parsing response body when sending to parent: ", err1)
-				fmt.Fprintf(w, "Error reading bytes from req body\n")
-
-			} else {
-				ep := &Endpoint_hit{}
-				ep.Unmarshal(body)
-
-				log.Println(GreenLog("Received endpoint hit data from child: " + ep.Honeypot))
-				ep.SaveToDB()
-			}
-
-			r.Body.Close()
-			fmt.Fprintf(w, "Success\n")
-		})
-
-		router.HandleFunc("POST /verify", func(w http.ResponseWriter, r *http.Request) {
-			if r.Body == nil {
-				log.Println("Body is empty")
-				fmt.Fprintf(w, "Need data in req body\n")
-
-				return
-			}
-			body, err1 := io.ReadAll(r.Body)
-			if err1 != nil {
-				log.Println("Error parsing response body when sending to parent: ", err1)
-				fmt.Fprintf(w, "Error reading bytes from req body\n")
-
-			} else {
-				type verifyData struct {
-					Honeypot string
-				}
-				vd := &verifyData{}
-				json.Unmarshal(body, vd)
-				log.Println(GreenLog("MTLS Verified from child instance with the naming scheme: " + vd.Honeypot))
-			}
-
-			r.Body.Close()
-			fmt.Fprintf(w, "Success\n")
-		})
 		// create MTLS Server or client
 		server := &http.Server{
 			Addr:      ":" + port,
@@ -133,12 +67,13 @@ func CreateMTLSServer(port string, tlsConfig *tls.Config) {
 
 		log.Println("")
 		log.Println(GreenLog(fmt.Sprintf("MTLS Parent server listening on %s...", port)))
+		serv = server
 		err := server.ListenAndServeTLS("", "")
-		// err := server.ListenAndServeTLS("", "")
 		if err != nil {
 			log.Fatalf("Failed to start server: %v", err)
 		}
 	}()
+	return serv
 }
 
 var MTLS_MESSAGE_TYPE_IP_DATA string = "ipdata"
@@ -170,7 +105,8 @@ func SendToParent(parentIP string, dataType string, data []byte) {
 	if err1 != nil {
 		log.Println("Error parsing response body when sending to parent: ", err1)
 	} else {
-		fmt.Println(string(body))
+		log.Println(string(body))
+
 	}
 
 	r.Body.Close()
@@ -192,6 +128,25 @@ func MTLS_Client() *http.Client {
 		},
 		Timeout: 5 * time.Second,
 	}
+}
+
+func MTLS_Fuzzing_Alert(parentIP string, data []byte, hasParent bool) {
+	if !hasParent {
+		return
+	}
+
+	log.Println("Passing fuzzing alert to parent.")
+	client := MTLS_Client()
+	URL_path := fmt.Sprintf("https://%s/fuzzingalert", parentIP)
+	// passing - IP of attacker, endpoint being hit, pot name,
+	reader := bytes.NewReader(data)
+
+	// will only post data to parent no checking if data was received etc
+	_, err := client.Post(URL_path, "application/json", reader)
+	if err != nil {
+		fmt.Println(RedLog("could not make post to parent for fuzzing alert"))
+	}
+
 }
 
 // calls the verify endpoint to validate that the certificates provided work
@@ -217,10 +172,15 @@ func MTLS_Verify_Certs(parentIP string, potName string) {
 	parentURL := fmt.Sprintf("https://%s/verify", parentIP)
 	r, err := client.Post(parentURL, "application/json", jsonReader)
 	if err != nil {
-		log.Println("Error sending data to parent: ", err)
-		if errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, context.DeadlineExceeded) {
+		if errors.Is(err, syscall.ECONNREFUSED) {
 			log.Println(RedLog("Connection refused by parent, check that the parent is running: "), err)
 			log.Fatalln(RedLog("Exiting Pottery"))
+		} else if errors.Is(err, context.DeadlineExceeded) {
+			log.Println(RedLog("Request to verify MTLS connection timed out, check that the parent is running: "), err)
+			log.Fatalln(RedLog("Exiting Pottery"))
+		} else {
+			log.Println("Error sending data to parent: ", err)
+
 		}
 		return
 	}

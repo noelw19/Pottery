@@ -1,7 +1,9 @@
 package lib
 
 import (
+	"encoding/json"
 	"errors"
+	"log"
 	"os"
 )
 
@@ -34,4 +36,18 @@ func RedLog(s string) string {
 
 func YellowLog(s string) string {
 	return Yellow + s + Reset
+}
+
+func AddToJSON(b []byte, key string, value string) ([]byte, error) {
+	var jsonData map[string]interface{}
+
+	err := json.Unmarshal(b, &jsonData)
+	if err != nil {
+		log.Println("Error adding property to JSON byte array: ", err)
+		return nil, err
+	}
+
+	jsonData[key] = value
+
+	return json.Marshal(jsonData)
 }

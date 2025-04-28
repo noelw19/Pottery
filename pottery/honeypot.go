@@ -2,6 +2,7 @@ package pottery
 
 import (
 	// "context"
+
 	"fmt"
 	"log"
 	"net/http"
@@ -13,6 +14,13 @@ import (
 	"github.com/noelw19/honeypot/lib"
 )
 
+type fuzzAlert struct {
+	AttackerIp  string
+	PotName     string
+	Endpoint    string
+	Description string
+}
+
 type Honeypot struct {
 	DeviceIP string
 	Port     uint16
@@ -22,31 +30,13 @@ type Honeypot struct {
 	Wordlist []string
 }
 
-type IServers interface {
-	*Honeypot
-	Run()
-}
-
 type middleware struct {
 	mux     http.Handler
 	potName string
 	config  *Config
 }
 
-type ctxKey string
-
-type ctxKeys struct {
-	geolocation ctxKey
-}
-
-var contextKeys ctxKeys = ctxKeys{
-	geolocation: ctxKey("geolocation"),
-}
-
 func (m middleware) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	// ctx := context.WithValue(req.Context(), "user", "unknown")
-	// ctx = context.WithValue(ctx, "__requestStartTimer__", time.Now())
-	// req = req.WithContext(ctx)
 
 	// if loopback address then empty string will get current server ip
 	ip := strings.Split(req.RemoteAddr, ":")[0]
@@ -56,7 +46,7 @@ func (m middleware) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	emoji := '\U0001F92E'
 	// emoji2 := '\U0001F9DC'
 
-	log.Println(fmt.Sprintf("%c Endpoint Hit - %s - %s %c", emoji, req.RequestURI, ip, emoji))
+	log.Printf("%c Endpoint Hit - %s - %s %c\n", emoji, req.RequestURI, ip, emoji)
 	geo := &GeoData{}
 	err := geo.GetGeolocation(ip)
 	if err != nil {
@@ -73,19 +63,13 @@ func (m middleware) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	ep.Populate(req)
 	ep.SaveToDB()
 
-	// ctx = context.WithValue(req.Context(), contextKeys.geolocation, geo)
-	// newReq := req.WithContext(ctx)
-
 	// if has a parent and is not a parent itself
 	if m.config.HasParent() && !m.config.IsParent() {
-		geo.ParentPass(m.config.Parent)
+		geo.ParentPass(m.config.Parent, ep.Honeypot)
 		ep.ParentPass(m.config.Parent)
 	}
 
 	m.mux.ServeHTTP(rw, req)
-
-	// start := req.Context().Value("__requestStartTimer__").(time.Time)
-	// log.Println("request duration: ", time.Since(start))
 }
 
 func potNameLog(pot *Honeypot) {
@@ -103,15 +87,22 @@ func (pot *Honeypot) Run(endpoint_count int, conf *Config) *http.Server {
 	potNameLog(pot)
 
 	helloMux := http.NewServeMux()
-
 	// take the random word array and iterate.
 	// pass to handler factory to create handler
 	// with word as endpoint
+	ipRateLimiter := lib.NewIPRateLimiter()
+
+	// added rate limiter but it is invoked on each handle func,
+	// will probably needto add these to all endpioints not including parent MTLS
 	for _, word := range pot.Wordlist {
-		helloMux.HandleFunc(handlerFactory(word))
+		endpoint, handler := handlerFactory(word)
+		helloMux.HandleFunc(endpoint, lib.RateLimitMiddleware(ipRateLimiter, handler))
 	}
 
-	helloMux.HandleFunc("/popper", handlePopper)
+	helloMux.HandleFunc("/popper", lib.RateLimitMiddleware(ipRateLimiter, handlePopper))
+	helloMux.HandleFunc("/", lib.RateLimitMiddleware(ipRateLimiter, func(w http.ResponseWriter, r *http.Request) {
+		fuzzDetect(w,r, pot, conf)
+	}))
 
 	return &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", pot.DeviceIP, pot.Port),

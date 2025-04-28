@@ -23,7 +23,6 @@ type Endpoint_hit struct {
 }
 
 func (ep *Endpoint_hit) ParentPass(parentIP string) error {
-	ep.Honeypot = "Child: "+ ep.Honeypot
 	json, err := json.Marshal(ep)
 	if err != nil {
 		log.Println("There was an error marshalling endpoint hit data to pass to parent")
